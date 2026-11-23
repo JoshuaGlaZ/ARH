@@ -1,0 +1,232 @@
+﻿
+@page "/requests/{Id:guid}"
+@using System.Security.Claims
+@using ARH.Domain.Entities
+@using ARH.Domain.Enums
+@using ARH.Services
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@attribute [Authorize]
+
+@inject AccessRequestService RequestService
+@inject AuditService AuditService
+@inject AuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Navigation
+
+<PageTitle>Request Detail</PageTitle>
+
+<h3>Request Detail</h3>
+
+@if (request == null)
+{
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger">@errorMessage</div>
+    }
+    else
+    {
+        <p>Loading request...</p>
+    }
+}
+else
+{
+    <div class="card p-4 shadow-sm mb-4">
+
+        <div class="d-flex justify-content-between">
+            <h5>@request.Application?.Name</h5>
+            <span class="badge bg-primary">@request.Status</span>
+        </div>
+
+        <hr />
+
+        <p><strong>Requester:</strong> @request.Requester?.FullName</p>
+        <p><strong>Environment:</strong> @request.Environment</p>
+        <p><strong>Access Level:</strong> @request.AccessLevel</p>
+        <p><strong>Risk:</strong> @request.RiskLevel</p>
+        <p><strong>Justification:</strong> @request.Justification</p>
+        <p><strong>Policy:</strong> @request.PolicyVersion</p>
+        <p><strong>Version:</strong> @request.Version</p>
+        <p><strong>Current Approver:</strong>
+            @(request.CurrentApprover?.FullName ?? "None")
+        </p>
+
+        @if (!string.IsNullOrWhiteSpace(request.RejectReason))
+        {
+            <div class="alert alert-danger">
+                <strong>Rejection reason:</strong>
+                @request.RejectReason
+            </div>
+        }
+    </div>
+
+    @if (canProcess)
+    {
+        <div class="card p-3 mb-4">
+            <h5>Approval Action</h5>
+
+            @if (!string.IsNullOrEmpty(actionMessage))
+            {
+                <div class="alert alert-info">@actionMessage</div>
+            }
+
+            <div class="mb-3">
+                <label class="form-label">Rejection Reason</label>
+                <textarea class="form-control"
+                          rows="3"
+                          maxlength="1000"
+                          @bind="rejectReason">
+                </textarea>
+            </div>
+
+            <button class="btn btn-success me-2"
+                    disabled="@isProcessing"
+                    @onclick="ApproveAsync">
+                Approve
+            </button>
+
+            <button class="btn btn-danger"
+                    disabled="@isProcessing"
+                    @onclick="RejectAsync">
+                Reject
+            </button>
+        </div>
+    }
+
+    <h5>Approval History</h5>
+
+    @if (auditLogs != null)
+    {
+        <AuditTimeline Logs="auditLogs" />
+    }
+}
+
+@code {
+    [Parameter]
+    public Guid Id { get; set; }
+
+    private AccessRequest? request;
+    private List<AuditLog>? auditLogs;
+
+    private Guid actorId;
+    private bool canProcess;
+    private bool isProcessing;
+
+    private string rejectReason = string.Empty;
+    private string? errorMessage;
+    private string? actionMessage;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var authState =
+            await AuthStateProvider.GetAuthenticationStateAsync();
+
+        var user = authState.User;
+
+        var userId = user.FindFirstValue(
+            ClaimTypes.NameIdentifier);
+
+        if (!Guid.TryParse(userId, out actorId))
+        {
+            errorMessage = "Unable to identify current user.";
+            return;
+        }
+
+        await LoadRequestAsync();
+    }
+
+    private async Task LoadRequestAsync()
+    {
+        try
+        {
+            request = await RequestService.GetRequestAsync(
+                actorId, Id);
+
+            auditLogs = await AuditService.GetRequestHistoryAsync(
+                actorId, Id);
+
+            canProcess = request.CurrentApproverId == actorId &&
+                request.Status is
+                    RequestStatus.PendingManagerApproval or
+                    RequestStatus.PendingSystemOwnerApproval;
+        }
+        catch (KeyNotFoundException)
+        {
+            errorMessage = "Request not found.";
+        }
+        catch (UnauthorizedAccessException)
+        {
+            errorMessage = "You are not allowed to view this request.";
+        }
+    }
+
+    private async Task ApproveAsync()
+    {
+        if (request == null) return;
+
+        isProcessing = true;
+        actionMessage = null;
+
+        try
+        {
+            await RequestService.ApproveAsync(
+                actorId, request.Id, request.Version);
+
+            actionMessage = "Request approved successfully.";
+
+            await LoadRequestAsync();
+        }
+        catch (InvalidOperationException ex)
+        {
+            actionMessage = $"Conflict: {ex.Message}";
+            await LoadRequestAsync();
+        }
+        catch (UnauthorizedAccessException)
+        {
+            actionMessage = "You are not authorized to approve this request.";
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+
+    private async Task RejectAsync()
+    {
+        if (request == null) return;
+
+        if (string.IsNullOrWhiteSpace(rejectReason))
+        {
+            actionMessage = "Rejection reason is required.";
+            return;
+        }
+
+        isProcessing = true;
+        actionMessage = null;
+
+        try
+        {
+            await RequestService.RejectAsync(
+                actorId,
+                request.Id,
+                request.Version,
+                rejectReason);
+
+            actionMessage = "Request rejected successfully.";
+
+            await LoadRequestAsync();
+        }
+        catch (InvalidOperationException ex)
+        {
+            actionMessage = $"Conflict: {ex.Message}";
+            await LoadRequestAsync();
+        }
+        catch (UnauthorizedAccessException)
+        {
+            actionMessage = "You are not authorized to reject this request.";
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+}

@@ -1,8 +1,18 @@
-﻿<Router AppAssembly="typeof(Program).Assembly">
+﻿@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Routing
+@using Microsoft.AspNetCore.Components
+
+<Router AppAssembly="typeof(Program).Assembly">
     <Found Context="routeData">
-        <RouteView RouteData="routeData"
-                   DefaultLayout="typeof(Layout.MainLayout)" />
+        <AuthorizeRouteView RouteData="routeData"
+                            DefaultLayout="typeof(Layout.MainLayout)">
+            <NotAuthorized>
+                <p>You are not authorized to access this page.</p>
+                <a href="/login">Go to Login</a>
+            </NotAuthorized>
+        </AuthorizeRouteView>
     </Found>
+
     <NotFound>
         <p>Page not found.</p>
     </NotFound>

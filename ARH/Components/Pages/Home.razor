@@ -1,7 +1,51 @@
-﻿@page "/"
+﻿
+@page "/"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
 
-<PageTitle>Home</PageTitle>
+<PageTitle>ARH Dashboard</PageTitle>
 
-<h1>Hello, world!</h1>
+<h3>Access Request Hub</h3>
 
-Welcome to your new app.
+<p class="text-muted">
+    Internal application access request and approval management.
+</p>
+
+<AuthorizeView Roles="Requester">
+    <Authorized>
+        <div class="card p-4 mb-3">
+            <h5>Requester Dashboard</h5>
+            <p>Create and track your access requests.</p>
+            <a href="/requests/create" class="btn btn-primary me-2">
+                Create Request
+            </a>
+            <a href="/requests/my" class="btn btn-outline-primary">
+                My Requests
+            </a>
+        </div>
+    </Authorized>
+</AuthorizeView>
+
+<AuthorizeView Roles="Manager,SystemOwner">
+    <Authorized>
+        <div class="card p-4 mb-3">
+            <h5>Approval Dashboard</h5>
+            <p>Review requests waiting for your approval.</p>
+            <a href="/approvals" class="btn btn-primary">
+                Open Approval Inbox
+            </a>
+        </div>
+    </Authorized>
+</AuthorizeView>
+
+<AuthorizeView Roles="AdminAuditor">
+    <Authorized>
+        <div class="card p-4 mb-3">
+            <h5>Auditor Dashboard</h5>
+            <p>View requests and centralized audit history.</p>
+            <a href="/admin/audit" class="btn btn-primary">
+                View Audit Logs
+            </a>
+        </div>
+    </Authorized>
+</AuthorizeView>

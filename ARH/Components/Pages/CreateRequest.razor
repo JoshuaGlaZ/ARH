@@ -1,0 +1,203 @@
+﻿@page "/requests/create"
+@using System.Security.Claims
+@using ARH.Data
+@using ARH.Domain.Entities
+@using ARH.Domain.Enums
+@using ARH.DTOs
+@using ARH.Services
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@attribute [Authorize(Roles = "Requester")]
+
+@inject AccessRequestService RequestService
+@inject AuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Navigation
+
+<PageTitle>Create Access Request</PageTitle>
+
+<h3>Create Access Request</h3>
+<p class="text-muted">
+    Submit a request for internal application access.
+</p>
+
+@if (applications == null)
+{
+    <p>Loading applications...</p>
+}
+else
+{
+    <div class="card shadow-sm p-4" style="max-width:650px">
+
+        @if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <div class="alert alert-danger">
+                @errorMessage
+            </div>
+        }
+
+        @if (!string.IsNullOrEmpty(successMessage))
+        {
+            <div class="alert alert-success">
+                @successMessage
+            </div>
+        }
+
+        <div class="mb-3">
+            <label class="form-label">Application</label>
+
+            <select class="form-select" @bind="applicationId">
+                <option value="">Select application</option>
+
+                @foreach (var app in applications)
+                {
+                    <option value="@app.Id">
+                        @app.Name - Owner: @app.SystemOwner?.FullName
+                    </option>
+                }
+            </select>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Environment</label>
+
+            <select class="form-select" @bind="environment">
+                <option value="@EnvironmentType.NonProduction">
+                    NonProduction
+                </option>
+                <option value="@EnvironmentType.Production">
+                    Production
+                </option>
+            </select>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Access Level</label>
+
+            <select class="form-select" @bind="accessLevel">
+                <option value="@AccessLevel.Read">Read</option>
+                <option value="@AccessLevel.Admin">Admin</option>
+            </select>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Justification</label>
+
+            <textarea class="form-control"
+                      rows="4"
+                      maxlength="1000"
+                      @bind="justification"
+                      placeholder="Explain why this access is required.">
+                </textarea>
+        </div>
+
+        <div class="alert alert-info">
+            <strong>Risk classification:</strong> @RiskDescription
+            <br />
+            <small>
+                All requests require Manager approval first.
+            </small>
+        </div>
+
+        <button class="btn btn-primary"
+                disabled="@isSubmitting"
+                @onclick="SubmitAsync">
+
+            @(isSubmitting ? "Submitting..." : "Submit Request")
+        </button>
+
+    </div>
+}
+
+@code {
+    private List<Application>? applications;
+
+    private string applicationId = string.Empty;
+    private EnvironmentType environment = EnvironmentType.NonProduction;
+    private AccessLevel accessLevel = AccessLevel.Read;
+    private string justification = string.Empty;
+
+    private bool isSubmitting;
+    private string? errorMessage;
+    private string? successMessage;
+
+    private string RiskDescription =>
+        environment == EnvironmentType.Production ||
+        accessLevel == AccessLevel.Admin
+            ? "High Risk - Manager + System Owner approval"
+            : "Non-High Risk - Manager approval";
+
+    protected override async Task OnInitializedAsync()
+    {
+        applications = await RequestService.GetActiveApplicationsAsync();
+    }
+
+    private async Task SubmitAsync()
+    {
+        errorMessage = null;
+        successMessage = null;
+
+        if (!Guid.TryParse(applicationId, out var appId))
+        {
+            errorMessage = "Please select an application.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(justification))
+        {
+            errorMessage = "Justification is required.";
+            return;
+        }
+
+        if (justification.Trim().Length > 1000)
+        {
+            errorMessage = "Justification cannot exceed 1000 characters.";
+            return;
+        }
+
+        isSubmitting = true;
+
+        try
+        {
+            var authState =
+                await AuthStateProvider.GetAuthenticationStateAsync();
+
+            var user = authState.User;
+
+            var userId = user.FindFirstValue(
+                ClaimTypes.NameIdentifier);
+
+            if (!Guid.TryParse(userId, out var requesterId))
+            {
+                errorMessage = "Unable to identify current user.";
+                return;
+            }
+
+            var command = new CreateRequestDto
+            {
+                ClientRequestId = Guid.NewGuid().ToString(),
+                ApplicationId = appId,
+                Environment = environment,
+                AccessLevel = accessLevel,
+                Justification = justification.Trim()
+            };
+
+            var result = await RequestService.CreateAsync(
+                requesterId, command);
+
+            successMessage = result.IsReplay
+                ? "Existing request retrieved."
+                : "Request submitted successfully.";
+
+            Navigation.NavigateTo(
+                $"/requests/{result.Request.Id}");
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+}

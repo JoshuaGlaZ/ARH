@@ -1,0 +1,108 @@
+﻿@using ARH.Domain.Entities
+
+@if (Logs == null)
+{
+    <div class="text-muted py-3">
+        Loading audit history...
+    </div>
+}
+else if (Logs.Count == 0)
+{
+    <div class="alert alert-light border">
+        No audit events available.
+    </div>
+}
+else
+{
+    <div class="audit-timeline">
+        @foreach (var log in Logs)
+        {
+            <div class="audit-event">
+                <div class="audit-marker"></div>
+
+                <div class="audit-content">
+                    <div class="d-flex justify-content-between flex-wrap gap-2">
+                        <strong>@log.Action</strong>
+                        <small class="text-muted">
+                            @log.TimestampUtc.ToString("dd MMM yyyy HH:mm:ss") UTC
+                        </small>
+                    </div>
+
+                    <div class="mt-2 d-flex align-items-center flex-wrap gap-2">
+                        <span class="badge text-bg-secondary">
+                            @(log.FromStatus ?? "Initial")
+                        </span>
+
+                        <span class="text-muted">→</span>
+
+                        <span class="badge text-bg-primary">
+                            @log.ToStatus
+                        </span>
+                    </div>
+
+                    <div class="small text-muted mt-2">
+                        Actor: @log.ActorEmailSnapshot
+                    </div>
+
+                    <div class="small text-muted">
+                        Version: @log.PreviousVersion → @log.NewVersion
+                        · Policy: @log.PolicyVersion
+                    </div>
+
+                    @if (!string.IsNullOrWhiteSpace(log.Reason))
+                    {
+                        <div class="audit-reason mt-2">
+                            <strong>Reason:</strong> @log.Reason
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter]
+    public List<AuditLog>? Logs { get; set; }
+}
+
+<style>
+    .audit-timeline {
+        border-left: 2px solid var(--bs-border-color);
+        margin-left: 8px;
+        padding-left: 22px;
+    }
+
+    .audit-event {
+        position: relative;
+        padding-bottom: 24px;
+    }
+
+        .audit-event:last-child {
+            padding-bottom: 0;
+        }
+
+    .audit-marker {
+        position: absolute;
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: var(--bs-primary);
+        left: -29px;
+        top: 5px;
+    }
+
+    .audit-content {
+        background: var(--bs-tertiary-bg);
+        border: 1px solid var(--bs-border-color);
+        border-radius: 8px;
+        padding: 14px;
+    }
+
+    .audit-reason {
+        border-left: 3px solid var(--bs-secondary);
+        padding: 8px 12px;
+        background: var(--bs-secondary-bg);
+        border-radius: 4px;
+    }
+</style>

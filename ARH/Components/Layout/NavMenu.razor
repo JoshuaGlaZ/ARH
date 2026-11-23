@@ -1,30 +1,61 @@
-﻿<div class="top-row ps-3 navbar navbar-dark">
-    <div class="container-fluid">
-        <a class="navbar-brand" href="">ARH</a>
+﻿@using Microsoft.AspNetCore.Components.Authorization
+
+<div class="sidebar-brand">
+    <a href="/" class="brand-link">
+        <span class="brand-mark">A</span>
+        <span>
+            <strong>ARH</strong>
+            <small>Access Request Hub</small>
+        </span>
+    </a>
+</div>
+
+<nav class="sidebar-nav">
+
+    <div class="nav-section">WORKSPACE</div>
+
+    <div class="nav-item">
+        <NavLink class="nav-link" href="/" Match="NavLinkMatch.All">
+            <span>Dashboard</span>
+        </NavLink>
     </div>
-</div>
 
-<input type="checkbox" title="Navigation menu" class="navbar-toggler" />
+    <AuthorizeView Roles="Requester">
+        <Authorized>
+            <div class="nav-item">
+                <NavLink class="nav-link" href="/requests/create">
+                    Create Request
+                </NavLink>
+            </div>
 
-<div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
-    <nav class="nav flex-column">
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
-                <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span> Home
-            </NavLink>
-        </div>
+            <div class="nav-item">
+                <NavLink class="nav-link" href="/requests/my">
+                    My Requests
+                </NavLink>
+            </div>
+        </Authorized>
+    </AuthorizeView>
 
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="counter">
-                <span class="bi bi-plus-square-fill-nav-menu" aria-hidden="true"></span> Counter
-            </NavLink>
-        </div>
+    <AuthorizeView Roles="Manager,SystemOwner">
+        <Authorized>
+            <div class="nav-item">
+                <NavLink class="nav-link" href="/approvals">
+                    Approval Inbox
+                </NavLink>
+            </div>
+        </Authorized>
+    </AuthorizeView>
 
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="weather">
-                <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Weather
-            </NavLink>
-        </div>
-    </nav>
-</div>
+    <AuthorizeView Roles="AdminAuditor">
+        <Authorized>
+            <div class="nav-section mt-4">ADMINISTRATION</div>
 
+            <div class="nav-item">
+                <NavLink class="nav-link" href="/admin/audit">
+                    Audit Logs
+                </NavLink>
+            </div>
+        </Authorized>
+    </AuthorizeView>
+
+</nav>

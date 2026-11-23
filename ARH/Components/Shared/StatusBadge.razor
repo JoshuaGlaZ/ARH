@@ -1,0 +1,26 @@
+﻿
+<span class="badge @BadgeClass">
+    @Status
+</span>
+
+@code {
+    [Parameter, EditorRequired]
+    public ARH.Domain.Enums.RequestStatus Status { get; set; }
+
+    private string BadgeClass => Status switch
+    {
+        ARH.Domain.Enums.RequestStatus.PendingManagerApproval
+            => "text-bg-warning",
+
+        ARH.Domain.Enums.RequestStatus.PendingSystemOwnerApproval
+            => "text-bg-info",
+
+        ARH.Domain.Enums.RequestStatus.Approved
+            => "text-bg-success",
+
+        ARH.Domain.Enums.RequestStatus.Rejected
+            => "text-bg-danger",
+
+        _ => "text-bg-secondary"
+    };
+}

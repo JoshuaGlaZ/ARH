@@ -669,5 +669,16 @@ namespace ARH.Services
             return exception.GetBaseException() is MySqlException mysql
                 && mysql.Number == 1062;
         }
+        public async Task<List<Application>> GetActiveApplicationsAsync(
+            CancellationToken ct = default)
+        {
+            return await _db.Applications
+                .AsNoTracking()
+                .Where(x => x.IsActive)
+                .Include(x => x.SystemOwner)
+                .OrderBy(x => x.Name)
+                .ToListAsync(ct);
+        }
+
     }
 }

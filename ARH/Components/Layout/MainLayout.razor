@@ -1,41 +1,49 @@
 ﻿@inherits LayoutComponentBase
+
 @using Microsoft.AspNetCore.Components.Authorization
 @using System.Security.Claims
-@using Microsoft.AspNetCore.Components.Routing
 
 <div class="page">
-    <div class="sidebar">
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
         <NavMenu />
-    </div>
+    </aside>
 
+    <!-- Main Content -->
     <main>
-        <div class="top-row px-4 d-flex justify-content-between align-items-center">
 
-            <div>
-                <strong>Access Request Hub</strong>
+        <!-- Top Header -->
+        <header class="top-row px-4">
+
+            <div class="d-flex align-items-center gap-2">
+                <strong class="app-title">
+                    Access Request Hub
+                </strong>
+                <span class="badge text-bg-light border">
+                    Phase 1
+                </span>
             </div>
 
             <AuthorizeView>
                 <Authorized Context="auth">
-                    <div class="d-flex align-items-center gap-3">
 
-                        <div class="text-end">
-                            <div class="fw-semibold">
+                    <div class="user-profile">
+
+                        <div class="user-avatar">
+                            @GetInitial(auth.User.Identity?.Name)
+                        </div>
+
+                        <div class="user-info">
+                            <div class="user-name">
                                 @auth.User.Identity?.Name
                             </div>
 
-                            <small class="text-muted">
+                            <span class="badge text-bg-primary">
                                 @auth.User.FindFirst(
                                                                 ClaimTypes.Role)?.Value
-                            </small>
+                            </span>
                         </div>
-
-                        @if (OperatingSystem.IsBrowser())
-                                                {
-                        <span class="badge bg-success">
-                            Logged In
-                        </span>
-                                                }
 
                         <form method="post"
                               action="/dev/auth/logout"
@@ -47,27 +55,44 @@
                             </button>
 
                         </form>
+
                     </div>
+
                 </Authorized>
 
                 <NotAuthorized>
+
                     <a href="/login"
                        class="btn btn-primary btn-sm">
                         Login
                     </a>
+
                 </NotAuthorized>
             </AuthorizeView>
 
-        </div>
+        </header>
 
+        <!-- Page Content -->
         <article class="content px-4">
             @Body
         </article>
+
     </main>
+
 </div>
 
+<!-- Blazor Error UI -->
 <div id="blazor-error-ui" data-nosnippet>
     An unhandled error has occurred.
     <a href="." class="reload">Reload</a>
-    <span class="dismiss">🗙</span>
+    <span class="dismiss">×</span>
 </div>
+
+@code {
+    private static string GetInitial(string? name)
+    {
+        return string.IsNullOrWhiteSpace(name)
+            ? "U"
+            : name.Trim()[0].ToString().ToUpperInvariant();
+    }
+}

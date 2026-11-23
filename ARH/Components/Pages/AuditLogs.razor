@@ -1,0 +1,94 @@
+﻿@page "/admin/audit"
+@using System.Security.Claims
+@using ARH.Domain.Entities
+@using ARH.Services
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@attribute [Authorize(Roles = "AdminAuditor")]
+
+@inject AuditService AuditService
+@inject AuthenticationStateProvider AuthStateProvider
+
+<PageTitle>Audit Logs</PageTitle>
+
+<h3>Audit Logs</h3>
+<p class="text-muted">Centralized access request audit history.</p>
+
+@if (logs == null)
+{
+    <p>Loading audit logs...</p>
+}
+else if (logs.Count == 0)
+{
+    <div class="alert alert-info">
+        No audit events available.
+    </div>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead>
+                <tr>
+                    <th>Time (UTC)</th>
+                    <th>Actor</th>
+                    <th>Action</th>
+                    <th>Request ID</th>
+                    <th>Transition</th>
+                    <th>Version</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var log in logs)
+                {
+                    <tr>
+                        <td>
+                            @log.TimestampUtc.ToString("dd MMM yyyy HH:mm:ss")
+                        </td>
+                        <td>@log.ActorEmailSnapshot</td>
+                        <td>@log.Action</td>
+                        <td>
+                            <small>@log.AccessRequestId</small>
+                        </td>
+                        <td>
+                            @(log.FromStatus ?? "Initial")
+                            →
+                            @log.ToStatus
+                        </td>
+                        <td>
+                            @log.PreviousVersion → @log.NewVersion
+                        </td>
+                        <td>
+                            <a href="@($"/requests/{log.AccessRequestId}")"
+                               class="btn btn-sm btn-outline-primary">
+                                Details
+                            </a>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private List<AuditLog>? logs;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState =
+            await AuthStateProvider.GetAuthenticationStateAsync();
+
+        var userId = authState.User.FindFirstValue(
+            ClaimTypes.NameIdentifier);
+
+        if (!Guid.TryParse(userId, out var actorId))
+        {
+            logs = new();
+            return;
+        }
+
+        logs = await AuditService.GetAuditLogsAsync(actorId);
+    }
+}
