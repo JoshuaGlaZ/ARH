@@ -1,6 +1,7 @@
 using ARH.Authentication;
 using ARH.Components;
 using ARH.Data;
+using ARH.Services;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
@@ -88,6 +89,8 @@ builder.Services.AddDbContext<ArhDbContext>(options =>
         ServerVersion.AutoDetect(connectionString)
     )
 );
+
+builder.Services.AddScoped<WorkflowService>();
 
 var app = builder.Build();
 
