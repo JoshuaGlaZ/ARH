@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.14.37906.3 d17.14
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ARH", "ARH\ARH.csproj", "{ACB4445C-7494-4A65-8C39-FAD4EBFE56DD}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{ACB4445C-7494-4A65-8C39-FAD4EBFE56DD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{ACB4445C-7494-4A65-8C39-FAD4EBFE56DD}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{ACB4445C-7494-4A65-8C39-FAD4EBFE56DD}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{ACB4445C-7494-4A65-8C39-FAD4EBFE56DD}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {0B1713E0-C560-4D48-8E2F-E30624C5F019}
+	EndGlobalSection
+EndGlobal
