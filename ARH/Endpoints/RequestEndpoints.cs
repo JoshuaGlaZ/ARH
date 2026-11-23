@@ -1,8 +1,9 @@
 ﻿
-using System.Security.Claims;
-using ARH.DTOs;
 using ARH.Domain.Enums;
+using ARH.DTOs;
+using ARH.Middleware;
 using ARH.Services;
+using System.Security.Claims;
 
 namespace ARH.Endpoints
 {
@@ -63,7 +64,8 @@ namespace ARH.Endpoints
                         message = ex.Message
                     });
                 }
-            });
+            })
+            .AddEndpointFilter<AntiforgeryEndpointFilter>(); ;
 
             // GET MY REQUESTS
 

@@ -601,13 +601,14 @@ namespace ARH.Services
             await transaction.CommitAsync(ct);
 
             // Return updated state
-            request.Status = nextStatus;
-            request.CurrentApproverId = nextApproverId;
-            request.Version = newVersion;
-            request.RejectReason = reject ? reason : null;
-            request.UpdatedAtUtc = now;
+            var updatedRequest = await _db.AccessRequests
+            .AsNoTracking()
+            .Include(x => x.Requester)
+            .Include(x => x.Application)
+            .Include(x => x.CurrentApprover)
+            .SingleAsync(x => x.Id == requestId, ct);
 
-            return request;
+            return updatedRequest;
         }
 
         // PRIVATE HELPERS

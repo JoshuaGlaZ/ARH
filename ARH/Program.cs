@@ -3,6 +3,7 @@ using ARH.Components;
 using ARH.Data;
 using ARH.Endpoints;
 using ARH.Services;
+using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
@@ -94,6 +95,12 @@ builder.Services.AddDbContext<ArhDbContext>(options =>
 builder.Services.AddScoped<WorkflowService>();
 builder.Services.AddScoped<AuthorizationService>();
 builder.Services.AddScoped<AccessRequestService>();
+builder.Services.AddScoped<AuditService>();
+
+builder.Services.AddAntiforgery(options =>
+{
+    options.HeaderName = "X-CSRF-TOKEN";
+});
 
 var app = builder.Build();
 
@@ -144,6 +151,21 @@ app.MapGet("/api/me", (ClaimsPrincipal user) =>
 .RequireAuthorization();
 
 app.MapRequestEndpoints();
+app.MapApprovalEndpoints();
+app.MapAuditEndpoints();
+
+app.MapGet("/api/antiforgery", (
+    HttpContext context,
+    IAntiforgery antiforgery) =>
+{
+    var tokens = antiforgery.GetAndStoreTokens(context);
+
+    return Results.Ok(new
+    {
+        token = tokens.RequestToken
+    });
+})
+.RequireAuthorization();
 
 app.MapStaticAssets();
 app.MapRazorComponents<App>()
