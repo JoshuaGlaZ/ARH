@@ -2,7 +2,8 @@
 using ARH.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 
-namespace ARH.Data{
+namespace ARH.Data
+{
 
     public static class ArhDbSeeder
     {

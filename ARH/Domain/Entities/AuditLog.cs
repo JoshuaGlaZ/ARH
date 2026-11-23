@@ -1,4 +1,5 @@
-﻿namespace ARH.Domain.Entities{
+﻿namespace ARH.Domain.Entities
+{
 
     public class AuditLog
     {

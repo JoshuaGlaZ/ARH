@@ -1,7 +1,8 @@
 ﻿using ARH.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 
-namespace ARH.Data{
+namespace ARH.Data
+{
 
     public class ArhDbContext : DbContext
     {

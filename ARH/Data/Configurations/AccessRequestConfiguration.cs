@@ -2,7 +2,8 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
-namespace ARH.Data.Configurations{
+namespace ARH.Data.Configurations
+{
 
     public class AccessRequestConfiguration
         : IEntityTypeConfiguration<AccessRequest>

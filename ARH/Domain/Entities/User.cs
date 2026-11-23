@@ -1,6 +1,7 @@
 ﻿using ARH.Domain.Enums;
 
-namespace ARH.Domain.Entities{
+namespace ARH.Domain.Entities
+{
 
     public class User
     {

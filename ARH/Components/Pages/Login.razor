@@ -1,0 +1,83 @@
+﻿@page "/login"
+@using ARH.Data
+@using ARH.Domain.Entities
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Authorization
+@attribute [AllowAnonymous]
+
+@inject ArhDbContext Db
+
+<PageTitle>ARH - Login</PageTitle>
+
+<div class="container d-flex justify-content-center align-items-center"
+     style="min-height: 80vh;">
+
+    <div class="card shadow-sm p-4" style="width: 420px;">
+
+        <h3 class="text-center mb-2">Access Request Hub</h3>
+
+        <p class="text-center text-muted mb-4">
+            Development Demo Login
+        </p>
+
+        @if (users == null)
+        {
+            <div class="text-center">
+                Loading users...
+            </div>
+        }
+        else if (users.Count == 0)
+        {
+            <div class="alert alert-warning">
+                No demo users found.
+                Please run database seeder.
+            </div>
+        }
+        else
+        {
+            <form method="post"
+                  action="/dev/auth/login"
+                  data-enhance="false">
+
+                <div class="mb-3">
+                    <label class="form-label">
+                        Select Demo User
+                    </label>
+
+                    <select name="email"
+                            class="form-select"
+                            required>
+
+                        @foreach (var user in users)
+                        {
+                            <option value="@user.Email">
+                                @user.FullName (@user.Role)
+                            </option>
+                        }
+
+                    </select>
+                </div>
+
+                <button type="submit"
+                        class="btn btn-primary w-100">
+                    Login
+                </button>
+
+            </form>
+        }
+
+    </div>
+</div>
+
+@code {
+    private List<User>? users;
+
+    protected override async Task OnInitializedAsync()
+    {
+        users = await Db.Users
+            .AsNoTracking()
+            .Where(x => x.IsActive)
+            .OrderBy(x => x.FullName)
+            .ToListAsync();
+    }
+}
