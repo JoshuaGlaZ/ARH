@@ -91,6 +91,8 @@ builder.Services.AddDbContext<ArhDbContext>(options =>
 );
 
 builder.Services.AddScoped<WorkflowService>();
+builder.Services.AddScoped<AuthorizationService>();
+builder.Services.AddScoped<AccessRequestService>();
 
 var app = builder.Build();
 
