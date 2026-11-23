@@ -1,6 +1,7 @@
 using ARH.Authentication;
 using ARH.Components;
 using ARH.Data;
+using ARH.Endpoints;
 using ARH.Services;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
@@ -141,6 +142,8 @@ app.MapGet("/api/me", (ClaimsPrincipal user) =>
     });
 })
 .RequireAuthorization();
+
+app.MapRequestEndpoints();
 
 app.MapStaticAssets();
 app.MapRazorComponents<App>()

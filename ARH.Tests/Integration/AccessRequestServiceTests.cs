@@ -83,18 +83,25 @@ public class AccessRequestServiceTests
 
         var crmId = await GetApplicationIdAsync(db, "CRM");
 
-        var service = CreateService(db);
-
-        var request = await service.CreateAsync(
+        var result = await CreateService(db).CreateAsync(
             aliceId, CreateCommand(crmId));
 
+        var request = result.Request;
+
+        Assert.False(result.IsReplay);
         Assert.NotEqual(Guid.Empty, request.Id);
+
         Assert.Equal(
             RequestStatus.PendingManagerApproval,
             request.Status);
+
         Assert.Equal(RiskLevel.NonHigh, request.RiskLevel);
         Assert.Equal(bobId, request.CurrentApproverId);
         Assert.Equal(1, request.Version);
+
+        Assert.Equal("Alice", request.Requester!.FullName);
+        Assert.Equal("CRM", request.Application!.Name);
+        Assert.Equal("Bob", request.CurrentApprover!.FullName);
 
         Assert.Equal(1, await db.AccessRequests.CountAsync());
     }
@@ -111,15 +118,14 @@ public class AccessRequestServiceTests
 
         var crmId = await GetApplicationIdAsync(db, "CRM");
 
-        var service = CreateService(db);
-
-        var request = await service.CreateAsync(
+        var result = await CreateService(db).CreateAsync(
             aliceId, CreateCommand(crmId));
 
         var audit = await db.AuditLogs.SingleAsync(
-            x => x.AccessRequestId == request.Id);
+            x => x.AccessRequestId == result.Request.Id);
 
         Assert.Equal(aliceId, audit.ActorId);
+        Assert.Equal("alice@example.local", audit.ActorEmailSnapshot);
         Assert.Equal("RequestCreated", audit.Action);
         Assert.Null(audit.FromStatus);
 
@@ -150,9 +156,18 @@ public class AccessRequestServiceTests
         var first = await service.CreateAsync(aliceId, command);
         var second = await service.CreateAsync(aliceId, command);
 
-        Assert.Equal(first.Id, second.Id);
-        Assert.Equal(1, await db.AccessRequests.CountAsync());
-        Assert.Equal(1, await db.AuditLogs.CountAsync());
+        Assert.False(first.IsReplay);
+        Assert.True(second.IsReplay);
+
+        Assert.Equal(first.Request.Id, second.Request.Id);
+
+        Assert.Equal(
+            1,
+            await db.AccessRequests.CountAsync());
+
+        Assert.Equal(
+            1,
+            await db.AuditLogs.CountAsync());
     }
 
     [Fact]
@@ -179,7 +194,8 @@ public class AccessRequestServiceTests
         differentCommand.ApplicationId = financeId;
 
         await Assert.ThrowsAsync<InvalidOperationException>(
-            () => service.CreateAsync(aliceId, differentCommand));
+            () => service.CreateAsync(
+                aliceId, differentCommand));
 
         Assert.Equal(1, await db.AccessRequests.CountAsync());
         Assert.Equal(1, await db.AuditLogs.CountAsync());
@@ -240,11 +256,11 @@ public class AccessRequestServiceTests
 
         var service = CreateService(db);
 
-        var request = await service.CreateAsync(
+        var created = await service.CreateAsync(
             aliceId, CreateCommand(crmId));
 
         var result = await service.ApproveAsync(
-            bobId, request.Id, request.Version);
+            bobId, created.Request.Id, created.Request.Version);
 
         Assert.Equal(RequestStatus.Approved, result.Status);
         Assert.Null(result.CurrentApproverId);
@@ -253,7 +269,7 @@ public class AccessRequestServiceTests
         Assert.Equal(
             2,
             await db.AuditLogs.CountAsync(
-                x => x.AccessRequestId == request.Id));
+                x => x.AccessRequestId == created.Request.Id));
     }
 
     [Fact]
@@ -279,10 +295,10 @@ public class AccessRequestServiceTests
 
         var service = CreateService(db);
 
-        var request = await service.CreateAsync(aliceId, command);
+        var created = await service.CreateAsync(aliceId, command);
 
         var result = await service.ApproveAsync(
-            bobId, request.Id, request.Version);
+            bobId, created.Request.Id, created.Request.Version);
 
         Assert.Equal(
             RequestStatus.PendingSystemOwnerApproval,
@@ -319,13 +335,13 @@ public class AccessRequestServiceTests
 
         var service = CreateService(db);
 
-        var request = await service.CreateAsync(aliceId, command);
+        var created = await service.CreateAsync(aliceId, command);
 
         var managerResult = await service.ApproveAsync(
-            bobId, request.Id, 1);
+            bobId, created.Request.Id, 1);
 
         var ownerResult = await service.ApproveAsync(
-            carolId, request.Id, managerResult.Version);
+            carolId, created.Request.Id, managerResult.Version);
 
         Assert.Equal(RequestStatus.Approved, ownerResult.Status);
         Assert.Null(ownerResult.CurrentApproverId);
@@ -334,7 +350,7 @@ public class AccessRequestServiceTests
         Assert.Equal(
             3,
             await db.AuditLogs.CountAsync(
-                x => x.AccessRequestId == request.Id));
+                x => x.AccessRequestId == created.Request.Id));
     }
 
     // ==========================================
@@ -358,14 +374,15 @@ public class AccessRequestServiceTests
 
         var service = CreateService(db);
 
-        var request = await service.CreateAsync(
+        var created = await service.CreateAsync(
             aliceId, CreateCommand(crmId));
 
         const string reason =
             "Insufficient business justification.";
 
         var result = await service.RejectAsync(
-            bobId, request.Id, request.Version, reason);
+            bobId, created.Request.Id,
+            created.Request.Version, reason);
 
         Assert.Equal(RequestStatus.Rejected, result.Status);
         Assert.Equal(reason, result.RejectReason);
@@ -396,17 +413,17 @@ public class AccessRequestServiceTests
 
         var service = CreateService(db);
 
-        var request = await service.CreateAsync(aliceId, command);
+        var created = await service.CreateAsync(aliceId, command);
 
         var managerResult = await service.ApproveAsync(
-            bobId, request.Id, 1);
+            bobId, created.Request.Id, 1);
 
         const string reason =
             "Production access is not approved.";
 
         var result = await service.RejectAsync(
             carolId,
-            request.Id,
+            created.Request.Id,
             managerResult.Version,
             reason);
 
@@ -436,16 +453,19 @@ public class AccessRequestServiceTests
 
         var service = CreateService(db);
 
-        var request = await service.CreateAsync(
+        var created = await service.CreateAsync(
             aliceId, CreateCommand(crmId));
 
         await Assert.ThrowsAsync<ArgumentException>(
             () => service.RejectAsync(
-                bobId, request.Id, request.Version, reason));
+                bobId,
+                created.Request.Id,
+                created.Request.Version,
+                reason));
 
         var persisted = await db.AccessRequests
             .AsNoTracking()
-            .SingleAsync(x => x.Id == request.Id);
+            .SingleAsync(x => x.Id == created.Request.Id);
 
         Assert.Equal(
             RequestStatus.PendingManagerApproval,
@@ -456,7 +476,7 @@ public class AccessRequestServiceTests
         Assert.Equal(
             1,
             await db.AuditLogs.CountAsync(
-                x => x.AccessRequestId == request.Id));
+                x => x.AccessRequestId == created.Request.Id));
     }
 
     // ==========================================
@@ -480,21 +500,23 @@ public class AccessRequestServiceTests
 
         var service = CreateService(db);
 
-        var request = await service.CreateAsync(
+        var created = await service.CreateAsync(
             aliceId, CreateCommand(crmId));
 
         await Assert.ThrowsAsync<UnauthorizedAccessException>(
             () => service.ApproveAsync(
-                danaId, request.Id, request.Version));
+                danaId,
+                created.Request.Id,
+                created.Request.Version));
 
         Assert.Equal(
             1,
             await db.AuditLogs.CountAsync(
-                x => x.AccessRequestId == request.Id));
+                x => x.AccessRequestId == created.Request.Id));
 
         var persisted = await db.AccessRequests
             .AsNoTracking()
-            .SingleAsync(x => x.Id == request.Id);
+            .SingleAsync(x => x.Id == created.Request.Id);
 
         Assert.Equal(
             RequestStatus.PendingManagerApproval,
@@ -525,18 +547,20 @@ public class AccessRequestServiceTests
 
         var service = CreateService(db);
 
-        var request = await service.CreateAsync(aliceId, command);
+        var created = await service.CreateAsync(aliceId, command);
 
         var managerResult = await service.ApproveAsync(
-            bobId, request.Id, 1);
+            bobId, created.Request.Id, 1);
 
         await Assert.ThrowsAsync<UnauthorizedAccessException>(
             () => service.ApproveAsync(
-                carolId, request.Id, managerResult.Version));
+                carolId,
+                created.Request.Id,
+                managerResult.Version));
 
         var persisted = await db.AccessRequests
             .AsNoTracking()
-            .SingleAsync(x => x.Id == request.Id);
+            .SingleAsync(x => x.Id == created.Request.Id);
 
         Assert.Equal(
             RequestStatus.PendingSystemOwnerApproval,
@@ -547,7 +571,7 @@ public class AccessRequestServiceTests
         Assert.Equal(
             2,
             await db.AuditLogs.CountAsync(
-                x => x.AccessRequestId == request.Id));
+                x => x.AccessRequestId == created.Request.Id));
     }
 
     [Fact]
@@ -564,16 +588,18 @@ public class AccessRequestServiceTests
 
         var service = CreateService(db);
 
-        var request = await service.CreateAsync(
+        var created = await service.CreateAsync(
             aliceId, CreateCommand(crmId));
 
         await Assert.ThrowsAsync<UnauthorizedAccessException>(
             () => service.ApproveAsync(
-                aliceId, request.Id, request.Version));
+                aliceId,
+                created.Request.Id,
+                created.Request.Version));
 
         var persisted = await db.AccessRequests
             .AsNoTracking()
-            .SingleAsync(x => x.Id == request.Id);
+            .SingleAsync(x => x.Id == created.Request.Id);
 
         Assert.Equal(
             RequestStatus.PendingManagerApproval,
@@ -584,7 +610,7 @@ public class AccessRequestServiceTests
         Assert.Equal(
             1,
             await db.AuditLogs.CountAsync(
-                x => x.AccessRequestId == request.Id));
+                x => x.AccessRequestId == created.Request.Id));
     }
 
     // ==========================================
@@ -608,22 +634,22 @@ public class AccessRequestServiceTests
 
         var service = CreateService(db);
 
-        var request = await service.CreateAsync(
+        var created = await service.CreateAsync(
             aliceId, CreateCommand(crmId));
 
         await service.ApproveAsync(
-            bobId, request.Id, expectedVersion: 1);
+            bobId, created.Request.Id, expectedVersion: 1);
 
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => service.RejectAsync(
                 bobId,
-                request.Id,
+                created.Request.Id,
                 expectedVersion: 1,
                 reason: "Stale action"));
 
         var persisted = await db.AccessRequests
             .AsNoTracking()
-            .SingleAsync(x => x.Id == request.Id);
+            .SingleAsync(x => x.Id == created.Request.Id);
 
         Assert.Equal(RequestStatus.Approved, persisted.Status);
         Assert.Equal(2, persisted.Version);
@@ -631,7 +657,7 @@ public class AccessRequestServiceTests
         Assert.Equal(
             2,
             await db.AuditLogs.CountAsync(
-                x => x.AccessRequestId == request.Id));
+                x => x.AccessRequestId == created.Request.Id));
     }
 
     // ==========================================
@@ -655,20 +681,22 @@ public class AccessRequestServiceTests
 
         var service = CreateService(db);
 
-        var request = await service.CreateAsync(
+        var created = await service.CreateAsync(
             aliceId, CreateCommand(crmId));
 
         await service.ApproveAsync(
-            bobId, request.Id, request.Version);
+            bobId, created.Request.Id, created.Request.Version);
 
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => service.ApproveAsync(
-                bobId, request.Id, expectedVersion: 2));
+                bobId,
+                created.Request.Id,
+                expectedVersion: 2));
 
         Assert.Equal(
             2,
             await db.AuditLogs.CountAsync(
-                x => x.AccessRequestId == request.Id));
+                x => x.AccessRequestId == created.Request.Id));
     }
 
     [Fact]
@@ -688,23 +716,25 @@ public class AccessRequestServiceTests
 
         var service = CreateService(db);
 
-        var request = await service.CreateAsync(
+        var created = await service.CreateAsync(
             aliceId, CreateCommand(crmId));
 
         await service.RejectAsync(
             bobId,
-            request.Id,
-            request.Version,
+            created.Request.Id,
+            created.Request.Version,
             "Request rejected.");
 
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => service.ApproveAsync(
-                bobId, request.Id, expectedVersion: 2));
+                bobId,
+                created.Request.Id,
+                expectedVersion: 2));
 
         Assert.Equal(
             2,
             await db.AuditLogs.CountAsync(
-                x => x.AccessRequestId == request.Id));
+                x => x.AccessRequestId == created.Request.Id));
     }
 
     // ==========================================
@@ -730,7 +760,7 @@ public class AccessRequestServiceTests
         var command = CreateCommand(
             crmId, "concurrent-request-001");
 
-        async Task<AccessRequest> CreateRequest()
+        async Task<CreateRequestResult> CreateRequest()
         {
             await using var db = _fixture.CreateDbContext();
 
@@ -742,7 +772,13 @@ public class AccessRequestServiceTests
             CreateRequest(),
             CreateRequest());
 
-        Assert.Equal(results[0].Id, results[1].Id);
+        Assert.Equal(
+            results[0].Request.Id,
+            results[1].Request.Id);
+
+        Assert.Equal(
+            1,
+            results.Count(x => x.IsReplay));
 
         await using var verifyDb = _fixture.CreateDbContext();
 
@@ -774,10 +810,10 @@ public class AccessRequestServiceTests
 
             crmId = await GetApplicationIdAsync(db, "CRM");
 
-            var request = await CreateService(db).CreateAsync(
+            var created = await CreateService(db).CreateAsync(
                 aliceId, CreateCommand(crmId));
 
-            requestId = request.Id;
+            requestId = created.Request.Id;
         }
 
         async Task<bool> TryApprove()
@@ -870,10 +906,10 @@ public class AccessRequestServiceTests
 
             crmId = await GetApplicationIdAsync(db, "CRM");
 
-            var request = await CreateService(db).CreateAsync(
+            var created = await CreateService(db).CreateAsync(
                 aliceId, CreateCommand(crmId));
 
-            requestId = request.Id;
+            requestId = created.Request.Id;
         }
 
         const string triggerName = "trg_test_audit_failure";

@@ -11,7 +11,6 @@ using MySqlConnector;
 
 namespace ARH.Services
 {
-
     public class AccessRequestService
     {
         private const string CurrentPolicyVersion = "v1";
@@ -27,7 +26,9 @@ namespace ARH.Services
             _workflow = workflow;
         }
 
-        public async Task<AccessRequest> CreateAsync(
+        // CREATE REQUEST
+
+        public async Task<CreateRequestResult> CreateAsync(
             Guid requesterId,
             CreateRequestDto command,
             CancellationToken ct = default)
@@ -37,9 +38,15 @@ namespace ARH.Services
                 throw new ArgumentException(
                     "ClientRequestId is required.");
 
-            if (command.ClientRequestId.Length > 100)
+            var clientRequestId = command.ClientRequestId.Trim();
+
+            if (clientRequestId.Length > 100)
                 throw new ArgumentException(
                     "ClientRequestId cannot exceed 100 characters.");
+
+            if (command.ApplicationId == Guid.Empty)
+                throw new ArgumentException(
+                    "ApplicationId is required.");
 
             if (!Enum.IsDefined(command.Environment))
                 throw new ArgumentException("Invalid environment.");
@@ -51,34 +58,18 @@ namespace ARH.Services
                 throw new ArgumentException(
                     "Justification is required.");
 
-            if (command.Justification.Trim().Length > 1000)
+            var justification = command.Justification.Trim();
+
+            if (justification.Length > 1000)
                 throw new ArgumentException(
                     "Justification cannot exceed 1000 characters.");
 
-            var clientRequestId = command.ClientRequestId.Trim();
-            var justification = command.Justification.Trim();
-
-            // Generate canonical payload hash
+            // Generate payload hash
             var payloadHash = CalculatePayloadHash(
                 command.ApplicationId,
                 command.Environment,
                 command.AccessLevel,
                 justification);
-
-            // Check existing idempotency key
-            var existing = await _db.AccessRequests
-                .AsNoTracking()
-                .FirstOrDefaultAsync(
-                    x => x.RequesterId == requesterId
-                      && x.ClientRequestId == clientRequestId,
-                    ct);
-
-            if (existing != null)
-            {
-                return ValidateIdempotentReplay(
-                    existing,
-                    payloadHash);
-            }
 
             // Validate requester
             var requester = await _db.Users
@@ -91,11 +82,30 @@ namespace ARH.Services
                 throw new UnauthorizedAccessException(
                     "Requester does not exist or is inactive.");
 
+            if (requester.Role != UserRole.Requester)
+                throw new UnauthorizedAccessException(
+                    "Only Requesters can create access requests.");
+
+            // Check existing idempotency key
+            var existing = await LoadRequestAsync(
+                requesterId,
+                clientRequestId,
+                ct);
+
+            if (existing != null)
+            {
+                ValidateIdempotentReplay(existing, payloadHash);
+
+                return new CreateRequestResult(
+                    existing,
+                    IsReplay: true);
+            }
+
+            // Validate Manager assignment
             if (requester.ManagerId == null)
                 throw new InvalidOperationException(
                     "Requester does not have an assigned Manager.");
 
-            // Validate Manager
             var managerExists = await _db.Users.AnyAsync(
                 x => x.Id == requester.ManagerId
                   && x.Role == UserRole.Manager
@@ -165,7 +175,7 @@ namespace ARH.Services
                 UpdatedAtUtc = now
             };
 
-            //  Initial audit event
+            // Initial audit
             var audit = new AuditLog
             {
                 Id = Guid.NewGuid(),
@@ -202,79 +212,66 @@ namespace ARH.Services
                 await _db.SaveChangesAsync(ct);
 
                 await transaction.CommitAsync(ct);
-
-                return request;
             }
             catch (DbUpdateException ex)
                 when (IsDuplicateKeyException(ex))
             {
+                
                 _db.ChangeTracker.Clear();
 
-                var duplicate = await _db.AccessRequests
-                    .AsNoTracking()
-                    .FirstOrDefaultAsync(
-                        x => x.RequesterId == requesterId
-                          && x.ClientRequestId == clientRequestId,
-                        ct);
+                var duplicate = await LoadRequestAsync(
+                    requesterId,
+                    clientRequestId,
+                    ct);
 
                 if (duplicate == null)
                     throw;
 
-                return ValidateIdempotentReplay(
+                ValidateIdempotentReplay(
                     duplicate,
                     payloadHash);
+
+                return new CreateRequestResult(
+                    duplicate,
+                    IsReplay: true);
             }
-        }
 
-        private static string CalculatePayloadHash(
-            Guid applicationId,
-            EnvironmentType environment,
-            AccessLevel accessLevel,
-            string justification)
-        {
-            var payload = JsonSerializer.Serialize(new
-            {
-                ApplicationId = applicationId,
-                Environment = environment.ToString(),
-                AccessLevel = accessLevel.ToString(),
-                Justification = justification
-            });
+            // Reload complete request
+            var created = await LoadRequestAsync(
+                requesterId,
+                clientRequestId,
+                ct);
 
-            var bytes = Encoding.UTF8.GetBytes(payload);
-
-            return Convert.ToHexString(
-                SHA256.HashData(bytes)).ToLowerInvariant();
-        }
-
-        private static AccessRequest ValidateIdempotentReplay(
-            AccessRequest existing,
-            string payloadHash)
-        {
-            if (!string.Equals(
-                existing.RequestPayloadHash,
-                payloadHash,
-                StringComparison.Ordinal))
-            {
+            if (created == null)
                 throw new InvalidOperationException(
-                    "ClientRequestId already exists with a different payload.");
-            }
+                    "Created request could not be reloaded.");
 
-            return existing;
+            return new CreateRequestResult(
+                created,
+                IsReplay: false);
         }
 
-        private static bool IsDuplicateKeyException(
-            DbUpdateException exception)
-        {
-            return exception.GetBaseException() is MySqlException mysql
-                && mysql.Number == 1062;
-        }
+        // GET MY REQUESTS
 
         public async Task<List<AccessRequest>> GetMyRequestsAsync(
             Guid requesterId,
             CancellationToken ct = default)
         {
+            var requester = await _db.Users
+                .AsNoTracking()
+                .FirstOrDefaultAsync(
+                    x => x.Id == requesterId
+                      && x.IsActive
+                      && x.Role == UserRole.Requester,
+                    ct);
+
+            if (requester == null)
+                throw new UnauthorizedAccessException(
+                    "Requester is not authorized.");
+
             return await _db.AccessRequests
                 .AsNoTracking()
+                .Include(x => x.Requester)
                 .Include(x => x.Application)
                 .Include(x => x.CurrentApprover)
                 .Where(x => x.RequesterId == requesterId)
@@ -282,11 +279,12 @@ namespace ARH.Services
                 .ToListAsync(ct);
         }
 
+        // GET APPROVAL INBOX
+
         public async Task<List<AccessRequest>> GetInboxAsync(
             Guid actorId,
             CancellationToken ct = default)
         {
-            // Get authenticated actor from database
             var actor = await _db.Users
                 .AsNoTracking()
                 .FirstOrDefaultAsync(
@@ -320,23 +318,73 @@ namespace ARH.Services
 
                     break;
 
-                case UserRole.Requester:
-                case UserRole.AdminAuditor:
-
-                    return new List<AccessRequest>();
-
                 default:
 
-                    throw new UnauthorizedAccessException(
-                        "User is not authorized to access approval inbox.");
+                    return new List<AccessRequest>();
             }
 
             return await query
                 .Include(x => x.Requester)
                 .Include(x => x.Application)
+                .Include(x => x.CurrentApprover)
                 .OrderByDescending(x => x.CreatedAtUtc)
                 .ToListAsync(ct);
         }
+
+        // GET REQUEST DETAIL
+
+        public async Task<AccessRequest> GetRequestAsync(
+            Guid actorId,
+            Guid requestId,
+            CancellationToken ct = default)
+        {
+            var request = await _db.AccessRequests
+                .AsNoTracking()
+                .Include(x => x.Requester)
+                .Include(x => x.Application)
+                .Include(x => x.CurrentApprover)
+                .FirstOrDefaultAsync(
+                    x => x.Id == requestId,
+                    ct);
+
+            if (request == null)
+                throw new KeyNotFoundException(
+                    "Request not found.");
+
+            var actor = await _db.Users
+                .AsNoTracking()
+                .FirstOrDefaultAsync(
+                    x => x.Id == actorId && x.IsActive,
+                    ct);
+
+            if (actor == null)
+                throw new UnauthorizedAccessException(
+                    "User does not exist or is inactive.");
+
+            var allowed = actor.Role switch
+            {
+                UserRole.AdminAuditor => true,
+
+                UserRole.Requester =>
+                    request.RequesterId == actorId,
+
+                UserRole.Manager =>
+                    request.Requester?.ManagerId == actorId,
+
+                UserRole.SystemOwner =>
+                    request.Application?.SystemOwnerId == actorId,
+
+                _ => false
+            };
+
+            if (!allowed)
+                throw new UnauthorizedAccessException(
+                    "You are not allowed to view this request.");
+
+            return request;
+        }
+
+        // APPROVE REQUEST
 
         public Task<AccessRequest> ApproveAsync(
             Guid actorId,
@@ -353,6 +401,8 @@ namespace ARH.Services
                 ct);
         }
 
+        // REJECT REQUEST
+
         public Task<AccessRequest> RejectAsync(
             Guid actorId,
             Guid requestId,
@@ -364,7 +414,9 @@ namespace ARH.Services
                 throw new ArgumentException(
                     "Rejection reason is required.");
 
-            if (reason.Trim().Length > 1000)
+            reason = reason.Trim();
+
+            if (reason.Length > 1000)
                 throw new ArgumentException(
                     "Rejection reason cannot exceed 1000 characters.");
 
@@ -373,10 +425,11 @@ namespace ARH.Services
                 requestId,
                 expectedVersion,
                 reject: true,
-                reason: reason.Trim(),
+                reason,
                 ct);
         }
 
+        // EXECUTE WORKFLOW TRANSITION
 
         private async Task<AccessRequest> ExecuteTransitionAsync(
             Guid actorId,
@@ -389,17 +442,20 @@ namespace ARH.Services
             await using var transaction =
                 await _db.Database.BeginTransactionAsync(ct);
 
-            // Get request
+            // Load request
             var request = await _db.AccessRequests
                 .AsNoTracking()
                 .Include(x => x.Requester)
                 .Include(x => x.Application)
-                .FirstOrDefaultAsync(x => x.Id == requestId, ct);
+                .FirstOrDefaultAsync(
+                    x => x.Id == requestId,
+                    ct);
 
             if (request == null)
-                throw new KeyNotFoundException("Request not found.");
+                throw new KeyNotFoundException(
+                    "Request not found.");
 
-            // Get actor from database
+            // Load actor
             var actor = await _db.Users
                 .AsNoTracking()
                 .FirstOrDefaultAsync(
@@ -410,17 +466,17 @@ namespace ARH.Services
                 throw new UnauthorizedAccessException(
                     "Actor does not exist or is inactive.");
 
-            // Prevent self-approval / self-rejection
+            // Prevent self approval / rejection
             if (request.RequesterId == actorId)
                 throw new UnauthorizedAccessException(
                     "Requester cannot process their own request.");
 
-            // Check expected version
+            // Check version
             if (request.Version != expectedVersion)
                 throw new InvalidOperationException(
                     "Request version is outdated. Please refresh.");
 
-            // Validate actor authorization
+            // Validate authorization and current stage
             switch (request.Status)
             {
                 case RequestStatus.PendingManagerApproval:
@@ -429,7 +485,7 @@ namespace ARH.Services
                         throw new UnauthorizedAccessException(
                             "Only the assigned Manager can process this request.");
 
-                    if (request.Requester!.ManagerId != actorId ||
+                    if (request.Requester?.ManagerId != actorId ||
                         request.CurrentApproverId != actorId)
                         throw new UnauthorizedAccessException(
                             "Manager is not authorized for this request.");
@@ -442,7 +498,7 @@ namespace ARH.Services
                         throw new UnauthorizedAccessException(
                             "Only the assigned System Owner can process this request.");
 
-                    if (request.Application!.SystemOwnerId != actorId ||
+                    if (request.Application?.SystemOwnerId != actorId ||
                         request.CurrentApproverId != actorId)
                         throw new UnauthorizedAccessException(
                             "System Owner is not authorized for this request.");
@@ -481,7 +537,8 @@ namespace ARH.Services
             // Determine next approver
             Guid? nextApproverId = null;
 
-            if (nextStatus == RequestStatus.PendingSystemOwnerApproval)
+            if (nextStatus ==
+                RequestStatus.PendingSystemOwnerApproval)
             {
                 nextApproverId = request.Application!.SystemOwnerId;
             }
@@ -489,7 +546,7 @@ namespace ARH.Services
             var now = DateTime.UtcNow;
             var newVersion = request.Version + 1;
 
-            // update
+            // Conditional update
             var affected = await _db.AccessRequests
                 .Where(x =>
                     x.Id == requestId &&
@@ -499,7 +556,9 @@ namespace ARH.Services
                     .SetProperty(x => x.Status, nextStatus)
                     .SetProperty(x => x.CurrentApproverId, nextApproverId)
                     .SetProperty(x => x.Version, newVersion)
-                    .SetProperty(x => x.RejectReason, reject ? reason : null)
+                    .SetProperty(
+                        x => x.RejectReason,
+                        reject ? reason : null)
                     .SetProperty(x => x.UpdatedAtUtc, now),
                     ct);
 
@@ -541,7 +600,7 @@ namespace ARH.Services
 
             await transaction.CommitAsync(ct);
 
-            // Update returned object
+            // Return updated state
             request.Status = nextStatus;
             request.CurrentApproverId = nextApproverId;
             request.Version = newVersion;
@@ -551,5 +610,63 @@ namespace ARH.Services
             return request;
         }
 
+        // PRIVATE HELPERS
+
+        private Task<AccessRequest?> LoadRequestAsync(
+            Guid requesterId,
+            string clientRequestId,
+            CancellationToken ct)
+        {
+            return _db.AccessRequests
+                .AsNoTracking()
+                .Include(x => x.Requester)
+                .Include(x => x.Application)
+                .Include(x => x.CurrentApprover)
+                .FirstOrDefaultAsync(
+                    x => x.RequesterId == requesterId
+                      && x.ClientRequestId == clientRequestId,
+                    ct);
+        }
+
+        private static string CalculatePayloadHash(
+            Guid applicationId,
+            EnvironmentType environment,
+            AccessLevel accessLevel,
+            string justification)
+        {
+            var payload = JsonSerializer.Serialize(new
+            {
+                ApplicationId = applicationId,
+                Environment = environment.ToString(),
+                AccessLevel = accessLevel.ToString(),
+                Justification = justification
+            });
+
+            var bytes = Encoding.UTF8.GetBytes(payload);
+
+            return Convert.ToHexString(
+                SHA256.HashData(bytes)).ToLowerInvariant();
+        }
+
+        private static void ValidateIdempotentReplay(
+            AccessRequest existing,
+            string payloadHash)
+        {
+            if (!string.Equals(
+                existing.RequestPayloadHash,
+                payloadHash,
+                StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    "ClientRequestId already exists with a different payload.");
+            }
+        }
+
+        private static bool IsDuplicateKeyException(
+            DbUpdateException exception)
+        {
+            return exception.GetBaseException() is MySqlException mysql
+                && mysql.Number == 1062;
+        }
     }
 }
